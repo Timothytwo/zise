@@ -1,0 +1,2721 @@
+openapi: 3.0.3
+info:
+  title: Zise OpenAPI - 完整接口文档
+  description: |
+    Zise OpenAPI 完整接口文档
+    
+    包含以下功能：
+    - KYC认证（申请、更新、详情）
+    - 文件上传（S3预签名上传）
+    - 卡片管理（虚拟卡开卡、实体卡申请/激活、充值、详情查询、冻结/解冻、提现、删卡、BIN查询、操作结果查询）
+    - 交易管理（交易列表查询）
+    - Webhook回调（卡片操作结果通知，消费回调）
+    
+    认证方式：使用 X-APP-ID、X-TIMESTAMP、X-SIGN 进行签名认证
+    
+    重要说明：
+    - 所有接口的HTTP状态码均为200（OK）
+    - 业务错误码在响应体的 `code` 字段中返回：
+      * 0 = 成功
+      * 1 = 系统错误
+      * 1000 = 业务错误
+      * 1002 = 参数错误（包括参数验证失败、幂等键重复等）
+      * 1003 = 记录不存在
+    
+    Webhook回调说明：
+    - 系统使用通用事件格式，支持不同卡商
+    - 所有回调数据都包含 provider 字段（整数类型，在顶层），用于识别卡商ID
+    - data字段包含卡商的原始数据，结构取决于卡商类型
+    - 金额字段统一使用字符串格式，避免精度问题
+    - 时间字段统一使用 "YYYY-MM-DD HH:mm:ss" 格式
+  version: 2.1.0
+  contact:
+    name: Zise API Support
+
+servers:
+  - url: https://api.example.com
+    description: 生产环境
+  - url: https://apizise-sdk.tronify.net
+    description: 开发环境
+
+tags:
+  - name: OpenAPI/KYC认证
+    description: KYC认证相关接口
+  - name: OpenAPI/存储
+    description: 文件存储相关接口
+  - name: OpenAPI/卡片管理
+    description: 卡片管理相关接口
+  - name: OpenAPI/交易管理
+    description: 交易管理相关接口
+  - name: OpenAPI/Webhook回调
+    description: Webhook回调通知相关说明
+
+components:
+  parameters:
+    X-APP-ID-Header:
+      name: X-APP-ID
+      in: header
+      required: true
+      schema:
+        type: string
+      description: 分配给合作方的唯一appId，用于识别调用方身份
+      example: "app_1234567890"
+    
+    X-TIMESTAMP-Header:
+      name: X-TIMESTAMP
+      in: header
+      required: true
+      schema:
+        type: string
+      description: 时间戳
+      example: "1704067200"
+    
+    X-SIGN-Header:
+      name: X-SIGN
+      in: header
+      required: true
+      schema:
+        type: string
+      description: 使用RSA私钥对MD5(body)的结果进行签名，再进行Base64编码
+      example: "Base64EncodedSignatureString"
+
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+          description: |
+            错误码，0表示成功，非0表示失败：
+            - 0 = 成功
+            - 1 = 系统错误
+            - 1000 = 业务错误
+            - 1002 = 参数错误（包括参数验证失败、幂等键重复等）
+            - 1003 = 记录不存在
+          example: 1002
+        message:
+          type: string
+          description: 错误消息
+          example: "操作请勿重复执行"
+        data:
+          type: object
+          nullable: true
+          description: 错误时data为null
+      required:
+        - code
+        - message
+        - data
+
+    SuccessResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+          description: 状态码，0表示成功
+          example: 0
+        message:
+          type: string
+          description: 响应消息
+          example: "success"
+        data:
+          description: 响应数据，根据接口不同而不同
+      required:
+        - code
+        - message
+        - data
+
+    CardDetailsRequest:
+      type: object
+      required:
+        - card_id
+      properties:
+        card_id:
+          type: string
+          description: 卡片ID（卡商提供的CardUuid）
+          example: "card-uuid-123456"
+      example:
+        card_id: "card-uuid-123456"
+
+    CardPayoutRequest:
+      type: object
+      required:
+        - card_id
+        - amount
+        - idempotency_key
+      properties:
+        card_id:
+          type: string
+          description: 卡片ID（卡商提供的CardUuid）
+          example: "card-uuid-123456"
+        amount:
+          type: string
+          description: 提现金额（USD）
+          example: "30.00"
+        remark:
+          type: string
+          description: 提现备注，可选
+          example: "提现到余额"
+        idempotency_key:
+          type: string
+          description: 幂等键，必填，用于防止重复操作
+          example: "card_payout_20260107_001"
+      example:
+        card_id: "card-uuid-123456"
+        amount: "30.00"
+        remark: "提现到余额"
+        idempotency_key: "card_payout_20260107_001"
+
+    CardDeleteRequest:
+      type: object
+      required:
+        - card_id
+        - idempotency_key
+      properties:
+        card_id:
+          type: string
+          description: 卡片ID（卡商提供的CardUuid）
+          example: "card-uuid-123456"
+        remark:
+          type: string
+          description: 删除备注，可选
+          example: "用户申请删除"
+        idempotency_key:
+          type: string
+          description: 幂等键，必填，用于防止重复操作
+          example: "card_delete_20260107_001"
+      example:
+        card_id: "card-uuid-123456"
+        remark: "用户申请删除"
+        idempotency_key: "card_delete_20260107_001"
+
+    CardFreezeRequest:
+      type: object
+      required:
+        - card_id
+        - idempotency_key
+      properties:
+        card_id:
+          type: string
+          description: 卡片ID（卡商提供的CardUuid）
+          example: "card-uuid-123456"
+        remark:
+          type: string
+          description: 冻结备注，可选
+          example: "用户申请冻结"
+        idempotency_key:
+          type: string
+          description: 幂等键，必填，用于防止重复操作
+          example: "card_freeze_20260107_001"
+      example:
+        card_id: "card-uuid-123456"
+        remark: "用户申请冻结"
+        idempotency_key: "card_freeze_20260107_001"
+
+    CardUnfreezeRequest:
+      type: object
+      required:
+        - card_id
+        - idempotency_key
+      properties:
+        card_id:
+          type: string
+          description: 卡片ID（卡商提供的CardUuid）
+          example: "card-uuid-123456"
+        remark:
+          type: string
+          description: 解冻备注，可选
+          example: "用户申请解冻"
+        idempotency_key:
+          type: string
+          description: 幂等键，必填，用于防止重复操作
+          example: "card_unfreeze_20260107_001"
+      example:
+        card_id: "card-uuid-123456"
+        remark: "用户申请解冻"
+        idempotency_key: "card_unfreeze_20260107_001"
+
+    TransactionListRequest:
+      type: object
+      required:
+        - page
+        - page_size
+        - card_id
+      properties:
+        page:
+          type: integer
+          description: 页码，从1开始
+          minimum: 1
+          example: 1
+        page_size:
+          type: integer
+          description: 每页数量
+          minimum: 1
+          maximum: 100
+          example: 10
+        card_id:
+          type: string
+          description: 卡片ID（卡商提供的CardUuid）
+          example: "891a956acc454b30b7e8b84fadeef564"
+      example:
+        page: 1
+        page_size: 10
+        card_id: "891a956acc454b30b7e8b84fadeef564"
+
+    CardFreezeResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: 是否成功
+          example: true
+        message:
+          type: string
+          description: 响应消息
+          example: "卡片冻结成功"
+      required:
+        - success
+        - message
+
+    CardUnfreezeResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: 是否成功
+          example: true
+        message:
+          type: string
+          description: 响应消息
+          example: "卡片解冻成功"
+      required:
+        - success
+        - message
+
+    CardAddress:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: 地址ID
+        createTime:
+          type: string
+          description: 生成地址时间
+        createBy:
+          type: integer
+          format: int64
+          description: 创建人
+        updateTime:
+          type: string
+          description: 修改时间
+        updateBy:
+          type: integer
+          format: int64
+          description: 修改人
+        isShop:
+          type: boolean
+          description: 是否为商家地址
+        cardUuid:
+          type: string
+          description: 绑定卡id
+        firstName:
+          type: string
+          description: 名
+        lastName:
+          type: string
+          description: 姓
+        address:
+          type: string
+          description: 地址
+        city:
+          type: string
+          description: 城市
+        state:
+          type: string
+          description: 州
+        postalCode:
+          type: string
+          description: 邮编
+        phone:
+          type: string
+          description: 电话
+        email:
+          type: string
+          description: 邮箱
+        useTime:
+          type: string
+          description: 使用时间
+        status:
+          type: integer
+          description: 状态
+
+    CardDetailsResponse:
+      type: object
+      description: |
+        卡片详情响应（抽象结构，每个卡商返回自己的原始详情）
+        
+        注意：这是通用响应格式，支持不同卡商。
+        卡商原始详情数据会放在 details 字段中，下游可以根据 provider 字段识别卡商并解析相应字段。
+      properties:
+        provider:
+          type: integer
+          format: int64
+          description: 卡商ID
+          example: 1
+        details:
+          type: object
+          description: |
+            卡商原始详情数据（各卡商的原始结构）
+            
+            卡商详情示例：
+            - id: 卡片ID
+            - card_uuid: 卡唯一标识
+            - card_number: 卡号
+            - card_number_four: 卡号后四位
+            - exp: 过期时间
+            - cvv: CVV安全码
+            - balance: 卡余额
+            - status: 卡状态（整数）
+            - 等等...
+            
+            另一卡商详情示例：
+            - provider_card_id: 卡片ID
+            - card_number: 卡号
+            - card_status: 卡状态（字符串，如 "ACTIVE", "INACTIVE"）
+            - total_amount_limit: 总限额
+            - billing_currency: 币种
+            - expiry: 过期时间
+            - 等等...
+          additionalProperties: true
+          example:
+            # 卡商示例
+            id: 123456
+            card_uuid: "card-uuid-123456"
+            card_bin: "411111"
+            card_number: "4111111111111234"
+            card_number_four: "1234"
+            exp: "12/25"
+            cvv: "123"
+            balance: 1000.50
+            status: 1
+            create_time: "2024-01-01 10:00:00"
+      required:
+        - provider
+        - details
+
+    TransactionItem:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: 主键ID
+        transaction_id:
+          type: string
+          description: 交易ID
+          example: "txn-123456"
+        card_id:
+          type: string
+          description: 卡片ID（卡商提供的CardUuid）
+          example: "card-uuid-123456"
+        masked_card_number:
+          type: string
+          description: 掩码卡号（前4位+****+后4位）
+          example: "4111********1234"
+        change_amount:
+          type: number
+          format: decimal
+          description: 余额变化（扣款时为负数）
+          example: -50.25
+        available_amount:
+          type: number
+          format: decimal
+          description: 回调中的卡余额
+          example: 949.75
+        merchant:
+          type: string
+          description: 商户名称
+          example: "Amazon"
+        transaction_status:
+          type: string
+          description: |
+            交易状态，可能的值包括：
+            - authentication: 授权（消费交易）
+            - approved-authentication: 授权已批准（消费交易）
+            - reversal: 撤销（撤销交易）
+            - settled-refund: 退款已结算（退款交易）
+            - settled-fee: 手续费已结算（手续费交易）
+          example: "approved-authentication"
+        remark:
+          type: string
+          description: 备注
+          example: "Purchase"
+        transaction_time:
+          type: string
+          description: 交易时间
+          example: "2024-01-01 10:00:00"
+        create_time:
+          type: string
+          description: 接收时间
+          example: "2024-01-01 10:00:01"
+        version_time:
+          type: string
+          description: 版本时间
+        transaction_version:
+          type: integer
+          description: 交易版本
+        change_type:
+          type: integer
+          description: 交易方向
+        cross_border_fees:
+          type: number
+          format: decimal
+          description: 跨境手续费
+        cross_border_direction:
+          type: integer
+          description: 跨境手续费扣款方向
+        vendor_transaction_id:
+          type: string
+          description: 商户订单号
+        tags:
+          type: string
+          description: 标签
+        business_service_fee_rate:
+          type: number
+          format: decimal
+          description: 平台手续费率
+        business_service_fee:
+          type: number
+          format: decimal
+          description: 平台手续费
+        business_auth_fee:
+          type: number
+          format: decimal
+          description: 平台授权费
+        business_total_fee:
+          type: number
+          format: decimal
+          description: 平台费用合计
+        created_at:
+          type: integer
+          format: int64
+          description: 创建时间戳
+          example: 1704067200
+        updated_at:
+          type: integer
+          format: int64
+          description: 更新时间戳
+          example: 1704067200
+        created_at_string:
+          type: string
+          description: 创建时间字符串
+        updated_at_string:
+          type: string
+          description: 更新时间字符串
+
+    PagedTransactionResponse:
+      type: object
+      properties:
+        total:
+          type: integer
+          format: int64
+          description: 总记录数
+          example: 100
+        list:
+          type: array
+          items:
+            $ref: '#/components/schemas/TransactionItem'
+          description: 交易记录列表
+      required:
+        - total
+        - list
+
+    IdentityCard:
+      type: object
+      properties:
+        front:
+          type: string
+          description: 国徽面/护照照片URL
+          example: "https://example.com/uploads/front.jpg"
+        back:
+          type: string
+          description: 人像面照片URL
+          example: "https://example.com/uploads/back.jpg"
+        hand_hold:
+          type: string
+          description: 手持证件照片URL
+          example: "https://example.com/uploads/handhold.jpg"
+      required:
+        - front
+        - back
+        - hand_hold
+
+    KycApplyRequest:
+      type: object
+      required:
+        - provider_id
+        - first_name
+        - last_name
+        - birthday
+        - identity_type
+        - id_images
+        - email
+        - mobile
+        - country
+        - province
+        - city
+        - district
+        - address
+        - identity_number
+        - gender
+        - phone_code
+        - nationality
+      properties:
+        provider_id:
+          type: integer
+          format: int64
+          description: |
+            卡商ID（必填），用于指定KYC所属的卡商
+            
+            系统会根据此ID查询 card_provider 表，确定使用哪个卡商的持卡人创建逻辑。
+            目前支持多个卡商。
+          example: 1
+        first_name:
+          type: string
+          description: 名
+          example: "John"
+        last_name:
+          type: string
+          description: 姓
+          example: "Doe"
+        birthday:
+          type: string
+          description: 生日，格式：YYYY-MM-DD
+          example: "1990-01-01"
+        identity_type:
+          type: string
+          enum: [id_card, passport]
+          description: 身份类型，id_card=身份证，passport=护照
+          example: "id_card"
+        id_images:
+          $ref: '#/components/schemas/IdentityCard'
+        email:
+          type: string
+          description: 邮箱
+          example: "john.doe@example.com"
+        mobile:
+          type: string
+          description: 手机号
+          example: "13800138000"
+        country:
+          type: string
+          description: 国家
+          example: "CN"
+        province:
+          type: string
+          description: 省、州或自治区
+          example: "Beijing"
+        city:
+          type: string
+          description: 城市
+          example: "Beijing"
+        district:
+          type: string
+          description: 区
+          example: "Chaoyang"
+        address:
+          type: string
+          description: 详细地址
+          example: "123 Main Street"
+        identity_number:
+          type: string
+          description: 证件号
+          example: "110101199001011234"
+        gender:
+          type: string
+          enum: [male, female]
+          description: 性别
+          example: "male"
+        phone_code:
+          type: string
+          description: 区号
+          example: "+86"
+        nationality:
+          type: string
+          description: 国籍
+          example: "CN"
+
+    KycUpdateRequest:
+      type: object
+      required:
+        - member_xid
+        - first_name
+        - last_name
+        - birthday
+        - identity_type
+        - id_images
+        - email
+        - mobile
+        - country
+        - province
+        - city
+        - district
+        - address
+        - identity_number
+        - gender
+        - phone_code
+        - nationality
+      properties:
+        member_xid:
+          type: string
+          description: 会员XID
+          example: "member_123456"
+        first_name:
+          type: string
+          description: 名
+          example: "John"
+        last_name:
+          type: string
+          description: 姓
+          example: "Doe"
+        birthday:
+          type: string
+          description: 生日，格式：YYYY-MM-DD
+          example: "1990-01-01"
+        identity_type:
+          type: string
+          enum: [id_card, passport]
+          description: 身份类型
+          example: "id_card"
+        id_images:
+          $ref: '#/components/schemas/IdentityCard'
+        email:
+          type: string
+          description: 邮箱
+          example: "john.doe@example.com"
+        mobile:
+          type: string
+          description: 手机号
+          example: "13800138000"
+        country:
+          type: string
+          description: 国家
+          example: "CN"
+        province:
+          type: string
+          description: 省、州或自治区
+          example: "Beijing"
+        city:
+          type: string
+          description: 城市
+          example: "Beijing"
+        district:
+          type: string
+          description: 区
+          example: "Chaoyang"
+        address:
+          type: string
+          description: 详细地址
+          example: "123 Main Street"
+        identity_number:
+          type: string
+          description: 证件号
+          example: "110101199001011234"
+        gender:
+          type: string
+          enum: [male, female]
+          description: 性别
+          example: "male"
+        phone_code:
+          type: string
+          description: 区号
+          example: "+86"
+        nationality:
+          type: string
+          description: 国籍
+          example: "CN"
+
+    KycDetailRequest:
+      type: object
+      required:
+        - member_xid
+      properties:
+        member_xid:
+          type: string
+          description: 会员XID
+          example: "member_123456"
+
+    KycApplyResponse:
+      type: object
+      properties:
+        xid:
+          type: string
+          description: 会员XID
+          example: "member_123456"
+      required:
+        - xid
+
+    KycDetailResponse:
+      type: object
+      properties:
+        xid:
+          type: string
+          description: 会员XID
+          example: "member_123456"
+        first_name:
+          type: string
+          description: 名
+          example: "John"
+        last_name:
+          type: string
+          description: 姓
+          example: "Doe"
+        birthday:
+          type: string
+          description: 生日
+          example: "1990-01-01"
+        identity_type:
+          type: string
+          description: 身份类型
+          example: "id_card"
+        id_images:
+          $ref: '#/components/schemas/IdentityCard'
+        email:
+          type: string
+          description: 邮箱
+          example: "john.doe@example.com"
+        mobile:
+          type: string
+          description: 手机号
+          example: "13800138000"
+        country:
+          type: string
+          description: 国家
+          example: "CN"
+        province:
+          type: string
+          description: 省、州或自治区
+          example: "Beijing"
+        city:
+          type: string
+          description: 城市
+          example: "Beijing"
+        district:
+          type: string
+          description: 区
+          example: "Chaoyang"
+        address:
+          type: string
+          description: 详细地址
+          example: "123 Main Street"
+        identity_number:
+          type: string
+          description: 证件号
+          example: "110101199001011234"
+        gender:
+          type: string
+          description: 性别
+          example: "male"
+        phone_code:
+          type: string
+          description: 区号
+          example: "+86"
+        nationality:
+          type: string
+          description: 国籍
+          example: "CN"
+        status:
+          type: string
+          description: |
+            KYC状态：
+            - wait_audit = 待审核
+            - pass_audit = 审核通过
+            - reject = 拒绝
+          example: "wait_audit"
+        remark:
+          type: string
+          description: 备注
+          example: ""
+        created_at:
+          type: integer
+          format: int64
+          description: 创建时间戳
+          example: 1704067200
+        updated_at:
+          type: integer
+          format: int64
+          description: 更新时间戳
+          example: 1704067200
+        created_at_string:
+          type: string
+          description: 创建时间字符串
+          example: "2024-01-01 10:00:00"
+        updated_at_string:
+          type: string
+          description: 更新时间字符串
+          example: "2024-01-01 10:00:00"
+
+    PresignUploadRequest:
+      type: object
+      required:
+        - filename
+      properties:
+        filename:
+          type: string
+          description: 文件名（含扩展名）
+          example: "id_front.jpg"
+      example:
+        filename: "id_front.jpg"
+
+    S3UploadURLResponse:
+      type: object
+      properties:
+        file_url:
+          type: string
+          description: 上传成功访问地址
+          example: "https://s3.example.com/uploads/uuid.jpg"
+        content_type:
+          type: string
+          description: 文件类型
+          example: "image/jpeg"
+        upload_url:
+          type: string
+          description: 预签名上传URL，使用PUT方法上传，header头带上对应Content-Type
+          example: "https://s3.example.com/uploads/uuid.jpg?X-Amz-Algorithm=..."
+      required:
+        - file_url
+        - content_type
+        - upload_url
+
+    CardApplyRequest:
+      type: object
+      required:
+        - member_xid
+        - bin
+        - amount
+        - idempotency_key
+      properties:
+        member_xid:
+          type: string
+          description: 会员XID（对应持卡人）
+          example: "member_123456"
+        bin:
+          type: string
+          description: 卡BIN（仅虚拟卡可用，实体卡请使用 /openapi/v1/card/physical/apply）
+          example: "4482130-3ds"
+        amount:
+          type: string
+          description: 开卡初始充值金额（USD）
+          example: "100.00"
+        idempotency_key:
+          type: string
+          description: 幂等键，必填，用于防止重复操作
+          example: "card_create_20260107_001"
+      example:
+        member_xid: "member_123456"
+        bin: "4482130-3ds"
+        amount: "100.00"
+        idempotency_key: "card_create_20260107_001"
+
+    CardPhysicalApplyRequest:
+      type: object
+      required:
+        - member_xid
+        - bin
+        - idempotency_key
+      properties:
+        member_xid:
+          type: string
+          description: 会员XID（对应持卡人）
+          example: "member_123456"
+        bin:
+          type: string
+          description: 实体卡BIN
+          example: "4938"
+        idempotency_key:
+          type: string
+          description: 幂等键，必填，用于防止重复操作
+          example: "card_physical_apply_20260107_001"
+      example:
+        member_xid: "member_123456"
+        bin: "4938"
+        idempotency_key: "card_physical_apply_20260107_001"
+
+    CardPhysicalApplyResponse:
+      type: object
+      properties:
+        xid:
+          type: string
+          description: 会员XID
+          example: "member_123456"
+        card_id:
+          type: string
+          description: 卡片ID（provider_card_id）
+          example: "WSB-CARD-123456"
+        status:
+          type: string
+          description: 操作状态（通常为 pending，需通过 operation/query 查询绑定结果）
+          example: "pending"
+      required:
+        - xid
+        - card_id
+        - status
+
+    CardPhysicalActivateRequest:
+      type: object
+      required:
+        - card_id
+        - activation_code
+        - idempotency_key
+      properties:
+        card_id:
+          type: string
+          description: 卡片ID（provider_card_id）
+          example: "WSB-CARD-123456"
+        activation_code:
+          type: string
+          description: 实体卡激活码
+          example: "123456"
+        idempotency_key:
+          type: string
+          description: 幂等键，必填，用于防止重复操作
+          example: "card_physical_activate_20260107_001"
+      example:
+        card_id: "WSB-CARD-123456"
+        activation_code: "123456"
+        idempotency_key: "card_physical_activate_20260107_001"
+
+    CardPhysicalActivateResponse:
+      type: object
+      properties:
+        card_id:
+          type: string
+          description: 卡片ID（provider_card_id）
+          example: "WSB-CARD-123456"
+        status:
+          type: string
+          description: 激活状态
+          example: "success"
+      required:
+        - card_id
+        - status
+
+    CardApplyResponse:
+      type: object
+      properties:
+        xid:
+          type: string
+          description: 会员XID
+          example: "member_123456"
+        card_id:
+          type: string
+          description: 卡片ID（CardUuid）
+          example: "card-uuid-123456"
+        status:
+          type: string
+          description: 开卡状态
+          example: "success"
+      required:
+        - xid
+        - card_id
+        - status
+
+    CardDepositRequest:
+      type: object
+      required:
+        - member_xid
+        - card_id
+        - amount
+        - idempotency_key
+      properties:
+        member_xid:
+          type: string
+          description: 会员XID
+          example: "member_123456"
+        card_id:
+          type: string
+          description: 卡片ID（卡商提供的CardUuid）
+          example: "card-uuid-123456"
+        amount:
+          type: string
+          description: 充值金额（USD）
+          example: "50.00"
+        idempotency_key:
+          type: string
+          description: 幂等键，必填，用于防止重复操作
+          example: "card_deposit_20260107_001"
+      example:
+        member_xid: "member_123456"
+        card_id: "card-uuid-123456"
+        amount: "50.00"
+        idempotency_key: "card_deposit_20260107_001"
+
+    CardDepositResponse:
+      type: object
+      properties:
+        xid:
+          type: string
+          description: 会员XID
+          example: "member_123456"
+        card_id:
+          type: string
+          description: 卡片ID（CardUuid）
+          example: "card-uuid-123456"
+        masked_card_number:
+          type: string
+          description: 掩码卡号（前4位+****+后4位）
+          example: "4111********1234"
+        amount:
+          type: string
+          description: 充值金额
+          example: "50.00"
+        status:
+          type: string
+          description: 充值状态
+          example: "success"
+      required:
+        - xid
+        - card_id
+        - masked_card_number
+        - amount
+        - status
+
+    CardPayoutResponse:
+      type: object
+      properties:
+        xid:
+          type: string
+          description: 会员XID
+          example: "member_123456"
+        card_id:
+          type: string
+          description: 卡片ID（CardUuid）
+          example: "card-uuid-123456"
+        masked_card_number:
+          type: string
+          description: 掩码卡号（前4位+****+后4位）
+          example: "4111********1234"
+        amount:
+          type: string
+          description: 提现金额
+          example: "30.00"
+        status:
+          type: string
+          description: 提现状态
+          example: "success"
+      required:
+        - xid
+        - card_id
+        - masked_card_number
+        - amount
+        - status
+
+    CardDeleteResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: 是否成功
+          example: true
+        message:
+          type: string
+          description: 响应消息
+          example: "卡片删除成功"
+      required:
+        - success
+        - message
+
+    CardBinListRequest:
+      type: object
+      required: []
+      properties: {}
+      example: {}
+
+    CardBin:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: 主键ID
+          example: 1
+        bin:
+          type: string
+          description: 卡BIN
+          example: "411111"
+        card_network:
+          type: string
+          description: |
+            卡组织：
+            - Visa
+            - Mastercard
+            - Amex
+            - Discover
+            - JCB
+          example: "Visa"
+        status:
+          type: integer
+          description: |
+            状态：
+            - 1 = 可用
+            - 其他 = 不可用
+          example: 1
+        min_money:
+          type: string
+          description: 最小开卡金额（USD）
+          example: "10.00"
+        max_money:
+          type: string
+          description: 最大开卡金额（USD），0表示无上限
+          example: "10000.00"
+        created_at:
+          type: integer
+          format: int64
+          description: 创建时间戳
+          example: 1704067200
+        updated_at:
+          type: integer
+          format: int64
+          description: 更新时间戳
+          example: 1704067200
+        created_at_string:
+          type: string
+          description: 创建时间字符串
+          example: "2024-01-01 10:00:00"
+        updated_at_string:
+          type: string
+          description: 更新时间字符串
+          example: "2024-01-01 10:00:00"
+      required:
+        - id
+        - bin
+        - card_network
+        - status
+        - min_money
+        - max_money
+
+    CardBinItem:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: 主键ID
+          example: 1
+        bin:
+          type: string
+          description: 卡BIN
+          example: "411111"
+        card_network:
+          type: string
+          description: |
+            卡组织：
+            - Visa
+            - Mastercard
+            - Amex
+            - Discover
+            - JCB
+          example: "Visa"
+        status:
+          type: integer
+          description: |
+            状态：
+            - 1 = 可用
+            - 其他 = 不可用
+          example: 1
+        min_money:
+          type: string
+          description: 最小开卡金额（USD）
+          example: "10.00"
+        max_money:
+          type: string
+          description: 最大开卡金额（USD），0表示无上限
+          example: "10000.00"
+        created_at:
+          type: integer
+          format: int64
+          description: 创建时间戳
+          example: 1704067200
+        updated_at:
+          type: integer
+          format: int64
+          description: 更新时间戳
+          example: 1704067200
+        created_at_string:
+          type: string
+          description: 创建时间字符串
+          example: "2024-01-01 10:00:00"
+        updated_at_string:
+          type: string
+          description: 更新时间字符串
+          example: "2024-01-01 10:00:00"
+      required:
+        - id
+        - bin
+        - status
+        - min_money
+        - max_money
+
+    CardOperationQueryRequest:
+      type: object
+      required:
+        - operation_type
+        - idempotency_key
+      properties:
+        operation_type:
+          type: string
+          description: |
+            操作类型，必填：
+            - create: 开卡
+            - recharge: 充值
+            - freeze: 冻结
+            - unfreeze: 解冻
+            - payout: 提现
+            - delete: 删卡
+            - physical_bind: 实体卡绑定
+            - physical_activate: 实体卡激活
+          example: "create"
+        idempotency_key:
+          type: string
+          description: 幂等键，必填，与执行操作时传入的幂等键一致
+          example: "card_create_20260107_001"
+        card_id:
+          type: string
+          description: |
+            卡片ID（卡商提供的CardUuid），条件必填：
+            - 开卡操作（create）时可为空（因为开卡时可能还没有card_id）
+            - 其他操作类型必填
+          example: "261135f4baf14130be0ed45cfff29dd8"
+      example:
+        operation_type: "create"
+        idempotency_key: "card_create_20260107_001"
+        card_id: ""
+
+    CardOperationQueryResponse:
+      type: object
+      properties:
+        operation_type:
+          type: string
+          description: 操作类型
+          example: "create"
+        card_id:
+          type: string
+          description: 卡片ID
+          example: "261135f4baf14130be0ed45cfff29dd8"
+        status:
+          type: string
+          description: |
+            操作状态：
+            - pending: 处理中
+            - success: 成功
+            - failed: 失败
+          example: "success"
+        result:
+          type: object
+          description: 操作结果数据（JSON对象），包含卡片的详细信息
+          additionalProperties: true
+          example:
+            cardUuid: "261135f4baf14130be0ed45cfff29dd8"
+            cardNumber: "4482130123456789"
+            status: 1
+        error_msg:
+          type: string
+          description: 错误信息，成功时为空字符串
+          example: ""
+        notified_at:
+          type: integer
+          format: int64
+          nullable: true
+          description: 通知下游时间（时间戳），如果还未通知则为null
+          example: 1767756661
+        created_at:
+          type: integer
+          format: int64
+          description: 创建时间（时间戳）
+          example: 1767756660
+        updated_at:
+          type: integer
+          format: int64
+          description: 更新时间（时间戳）
+          example: 1767756661
+        notified_at_string:
+          type: string
+          description: 通知时间（字符串格式），如果还未通知则为空字符串
+          example: "2026-01-07 12:00:01"
+        created_at_string:
+          type: string
+          description: 创建时间（字符串格式）
+          example: "2026-01-07 12:00:00"
+        updated_at_string:
+          type: string
+          description: 更新时间（字符串格式）
+          example: "2026-01-07 12:00:01"
+      required:
+        - operation_type
+        - card_id
+        - status
+        - result
+        - error_msg
+        - created_at
+        - updated_at
+        - created_at_string
+        - updated_at_string
+
+    CardOperationCallback:
+      type: object
+      description: 卡片操作回调通知（系统推送给下游商户）
+      properties:
+        code:
+          type: integer
+          description: |
+            状态码：
+            - 200 = 操作成功
+            - 500 = 操作失败
+          example: 200
+        msg:
+          type: string
+          nullable: true
+          description: 错误消息，成功时为null
+          example: null
+        type:
+          type: string
+          description: |
+            回调类型，根据操作类型动态设置：
+            - card.operation.create: 开卡操作
+            - card.operation.recharge: 充值操作
+            - card.operation.freeze: 冻结操作
+            - card.operation.unfreeze: 解冻操作
+            - card.operation.payout: 提现操作
+            - card.operation.delete: 删卡操作
+          example: "card.operation.create"
+        pushId:
+          type: string
+          description: 推送ID，用于幂等性校验
+          example: "4c039c67b28c48ea97333b39e39e5597"
+        idempotency_key:
+          type: string
+          description: 幂等键，与执行操作时传入的幂等键一致
+          example: "card_create_20260107_001"
+        provider:
+          type: integer
+          format: int64
+          description: |
+            卡商ID（整数），用于识别卡片所属的卡商
+          example: 1
+        data:
+          type: object
+          nullable: true
+          description: |
+            操作数据，成功时包含卡商的原始数据，失败时为null
+            
+            注意：
+            - 只有在操作成功时（code=200）才会包含data字段
+            - data字段包含的是卡商的原始数据，结构取决于卡商类型
+            - 不同卡商的数据结构不同，下游可以根据顶层的provider字段识别卡商并解析相应字段
+          additionalProperties: true
+          example:
+            # 卡商示例
+            provider_card_id: "card20220260120114632281404"
+            card_number: "2234670328927615"
+            card_status: "ACTIVE"
+            balance: "90"
+            total_amount_limit: "100"
+            billing_currency: "USD"
+            created: "2026-01-20 11:46:33"
+            operation_type: "freeze"
+      required:
+        - code
+        - type
+        - pushId
+        - idempotency_key
+        - provider
+
+
+paths:
+  /openapi/v1/kyc/apply:
+    post:
+      tags:
+        - OpenAPI/KYC认证
+      summary: KYC申请
+      description: |
+        提交KYC认证申请，创建新的持卡用户。
+        
+        需要先通过S3上传接口上传证件照片，然后在申请时使用返回的URL。
+        
+        当 provider_id 对应的卡商要求证件图上传时，id_images.front（证件正面/护照首页）与 id_images.back（证件背面）需为可访问URL；系统会下载并上传至对应卡商。
+      operationId: kycApply
+      parameters:
+        - $ref: '#/components/parameters/X-APP-ID-Header'
+        - $ref: '#/components/parameters/X-TIMESTAMP-Header'
+        - $ref: '#/components/parameters/X-SIGN-Header'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KycApplyRequest'
+            example:
+              provider_id: 1
+              first_name: "John"
+              last_name: "Doe"
+              birthday: "1990-01-01"
+              identity_type: "id_card"
+              id_images:
+                front: "https://s3.example.com/uploads/front.jpg"
+                back: "https://s3.example.com/uploads/back.jpg"
+                hand_hold: "https://s3.example.com/uploads/handhold.jpg"
+              email: "john.doe@example.com"
+              mobile: "13800138000"
+              country: "CN"
+              province: "Beijing"
+              city: "Beijing"
+              district: "Chaoyang"
+              address: "123 Main Street"
+              identity_number: "110101199001011234"
+              gender: "male"
+              phone_code: "+86"
+              nationality: "CN"
+      responses:
+        '200':
+          description: |
+            响应说明：HTTP状态码始终为200，成功时code=0，失败时code!=0（错误信息在响应体code字段中）
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - allOf:
+                      - $ref: '#/components/schemas/SuccessResponse'
+                      - type: object
+                        properties:
+                          data:
+                            $ref: '#/components/schemas/KycApplyResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                success:
+                  summary: "成功响应（code: 0）"
+                  value:
+                    code: 0
+                    message: "success"
+                    data:
+                      xid: "member_123456"
+                param_error:
+                  summary: "参数验证错误（code: 1002）"
+                  value:
+                    code: 1002
+                    message: "请求参数错误"
+                    data: null
+                idempotency_error:
+                  summary: "幂等键重复（code: 1002）"
+                  value:
+                    code: 1002
+                    message: "操作请勿重复执行"
+                    data: null
+                business_error:
+                  summary: "业务错误（code: 1000）"
+                  value:
+                    code: 1000
+                    message: "业务处理失败"
+                    data: null
+                system_error:
+                  summary: "系统错误（code: 1）"
+                  value:
+                    code: 1
+                    message: "系统繁忙，请稍后再试"
+                    data: null
+
+  /openapi/v1/kyc/update:
+    post:
+      tags:
+        - OpenAPI/KYC认证
+      summary: KYC修改
+      description: |
+        修改被拒绝的KYC认证信息。
+        
+        只能修改状态为"拒绝"的KYC申请。
+      operationId: kycUpdate
+      parameters:
+        - $ref: '#/components/parameters/X-APP-ID-Header'
+        - $ref: '#/components/parameters/X-TIMESTAMP-Header'
+        - $ref: '#/components/parameters/X-SIGN-Header'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KycUpdateRequest'
+            example:
+              member_xid: "member_123456"
+              first_name: "John"
+              last_name: "Doe"
+              birthday: "1990-01-01"
+              identity_type: "id_card"
+              id_images:
+                front: "https://s3.example.com/uploads/front.jpg"
+                back: "https://s3.example.com/uploads/back.jpg"
+                hand_hold: "https://s3.example.com/uploads/handhold.jpg"
+              email: "john.doe@example.com"
+              mobile: "13800138000"
+              country: "CN"
+              province: "Beijing"
+              city: "Beijing"
+              district: "Chaoyang"
+              address: "123 Main Street"
+              identity_number: "110101199001011234"
+              gender: "male"
+              phone_code: "+86"
+              nationality: "CN"
+      responses:
+        '200':
+          description: |
+            响应说明：HTTP状态码始终为200，成功时code=0，失败时code!=0（错误信息在响应体code字段中）
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - allOf:
+                      - $ref: '#/components/schemas/SuccessResponse'
+                      - type: object
+                        properties:
+                          data:
+                            type: boolean
+                            example: true
+                  - $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                success:
+                  summary: "成功响应（code: 0）"
+                  value:
+                    code: 0
+                    message: "success"
+                    data: true
+                param_error:
+                  summary: "参数验证错误（code: 1002）"
+                  value:
+                    code: 1002
+                    message: "请求参数错误"
+                    data: null
+                idempotency_error:
+                  summary: "幂等键重复（code: 1002）"
+                  value:
+                    code: 1002
+                    message: "操作请勿重复执行"
+                    data: null
+                business_error:
+                  summary: "业务错误（code: 1000）"
+                  value:
+                    code: 1000
+                    message: "业务处理失败"
+                    data: null
+                system_error:
+                  summary: "系统错误（code: 1）"
+                  value:
+                    code: 1
+                    message: "系统繁忙，请稍后再试"
+                    data: null
+
+  /openapi/v1/kyc/detail:
+    post:
+      tags:
+        - OpenAPI/KYC认证
+      summary: KYC详情
+      description: |
+        获取用户KYC认证详情，包括认证状态、审核结果等。
+      operationId: kycDetail
+      parameters:
+        - $ref: '#/components/parameters/X-APP-ID-Header'
+        - $ref: '#/components/parameters/X-TIMESTAMP-Header'
+        - $ref: '#/components/parameters/X-SIGN-Header'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KycDetailRequest'
+            example:
+              member_xid: "member_123456"
+      responses:
+        '200':
+          description: |
+            响应说明：HTTP状态码始终为200，成功时code=0，失败时code!=0（错误信息在响应体code字段中）
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - allOf:
+                      - $ref: '#/components/schemas/SuccessResponse'
+                      - type: object
+                        properties:
+                          data:
+                            $ref: '#/components/schemas/KycDetailResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                success:
+                  summary: "成功响应（code: 0）"
+                  value:
+                    code: 0
+                    message: "success"
+                    data:
+                      xid: "member_123456"
+                      first_name: "John"
+                      last_name: "Doe"
+                      birthday: "1990-01-01"
+                      identity_type: "id_card"
+                      id_images:
+                        front: "https://s3.example.com/uploads/front.jpg"
+                        back: "https://s3.example.com/uploads/back.jpg"
+                        hand_hold: "https://s3.example.com/uploads/handhold.jpg"
+                      email: "john.doe@example.com"
+                      mobile: "13800138000"
+                      country: "CN"
+                      province: "Beijing"
+                      city: "Beijing"
+                      district: "Chaoyang"
+                      address: "123 Main Street"
+                      identity_number: "110101199001011234"
+                      gender: "male"
+                      phone_code: "+86"
+                      nationality: "CN"
+                      status: "wait_audit"
+                      remark: ""
+                      created_at: 1704067200
+                      updated_at: 1704067200
+                      created_at_string: "2024-01-01 10:00:00"
+                      updated_at_string: "2024-01-01 10:00:00"
+                not_found_error:
+                  summary: "记录不存在（code: 1003）"
+                  value:
+                    code: 1003
+                    message: "KYC记录不存在"
+                    data: null
+                business_error:
+                  summary: "业务错误（code: 1000）"
+                  value:
+                    code: 1000
+                    message: "业务处理失败"
+                    data: null
+                system_error:
+                  summary: "系统错误（code: 1）"
+                  value:
+                    code: 1
+                    message: "系统繁忙，请稍后再试"
+                    data: null
+
+  /openapi/v1/kyc/get_upload_url:
+    post:
+      tags:
+        - OpenAPI/存储
+      summary: 获取S3上传链接
+      description: |
+        获取S3预签名上传链接，用于上传KYC证件照片等文件。
+        
+        使用返回的upload_url进行PUT上传，header头需要带上对应的Content-Type（如：Content-Type: image/jpeg）。
+        
+        上传成功后，使用返回的file_url作为文件访问地址。
+      operationId: getS3UploadURL
+      parameters:
+        - $ref: '#/components/parameters/X-APP-ID-Header'
+        - $ref: '#/components/parameters/X-TIMESTAMP-Header'
+        - $ref: '#/components/parameters/X-SIGN-Header'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PresignUploadRequest'
+            example:
+              filename: "id_front.jpg"
+      responses:
+        '200':
+          description: |
+            响应说明：HTTP状态码始终为200，成功时code=0，失败时code!=0（错误信息在响应体code字段中）
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - allOf:
+                      - $ref: '#/components/schemas/SuccessResponse'
+                      - type: object
+                        properties:
+                          data:
+                            $ref: '#/components/schemas/S3UploadURLResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                success:
+                  summary: "成功响应（code: 0）"
+                  value:
+                    code: 0
+                    message: "success"
+                    data:
+                      file_url: "https://s3.example.com/uploads/uuid.jpg"
+                      content_type: "image/jpeg"
+                      upload_url: "https://s3.example.com/uploads/uuid.jpg?X-Amz-Algorithm=..."
+                param_error:
+                  summary: "参数验证错误（code: 1002）"
+                  value:
+                    code: 1002
+                    message: "请求参数错误"
+                    data: null
+                business_error:
+                  summary: "业务错误（code: 1000）"
+                  value:
+                    code: 1000
+                    message: "业务处理失败"
+                    data: null
+                system_error:
+                  summary: "系统错误（code: 1）"
+                  value:
+                    code: 1
+                    message: "系统繁忙，请稍后再试"
+                    data: null
+
+  /openapi/v1/card/apply:
+    post:
+      tags:
+        - OpenAPI/卡片管理
+      summary: 虚拟卡开卡
+      description: |
+        通过指定 BIN 和金额开卡，创建新的虚拟卡片。
+        
+        开卡前需要确保用户已完成KYC认证。
+        
+        注意：
+        - member_xid 对应持卡人，系统会根据 member_xid 查找对应的KYC记录
+        - 该接口仅用于虚拟卡；实体卡请使用 /openapi/v1/card/physical/apply
+        - 系统会根据卡商配置自动处理持卡人信息
+      operationId: cardApply
+      parameters:
+        - $ref: '#/components/parameters/X-APP-ID-Header'
+        - $ref: '#/components/parameters/X-TIMESTAMP-Header'
+        - $ref: '#/components/parameters/X-SIGN-Header'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CardApplyRequest'
+            example:
+              member_xid: "member_123456"
+              bin: "4482130-3ds"
+              amount: "100.00"
+              idempotency_key: "card_create_20260107_001"
+      responses:
+        '200':
+          description: |
+            响应说明：HTTP状态码始终为200，成功时code=0，失败时code!=0（错误信息在响应体code字段中）
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - allOf:
+                      - $ref: '#/components/schemas/SuccessResponse'
+                      - type: object
+                        properties:
+                          data:
+                            $ref: '#/components/schemas/CardApplyResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                success:
+                  summary: "成功响应（code: 0）"
+                  value:
+                    code: 0
+                    message: "success"
+                    data:
+                      xid: "member_123456"
+                      card_id: "card-uuid-123456"
+                      status: "success"
+                param_error:
+                  summary: "参数验证错误（code: 1002）"
+                  value:
+                    code: 1002
+                    message: "请求参数错误"
+                    data: null
+                idempotency_error:
+                  summary: "幂等键重复（code: 1002）"
+                  value:
+                    code: 1002
+                    message: "操作请勿重复执行"
+                    data: null
+                async_operation:
+                  summary: "异步操作（code: 1000）"
+                  value:
+                    code: 1000
+                    message: "开卡操作已提交，正在处理中，请稍后查询结果"
+                    data: null
+                business_error:
+                  summary: "业务错误（code: 1000）"
+                  value:
+                    code: 1000
+                    message: "业务处理失败"
+                    data: null
+                system_error:
+                  summary: "系统错误（code: 1）"
+                  value:
+                    code: 1
+                    message: "系统繁忙，请稍后再试"
+                    data: null
+
+  /openapi/v1/card/physical/apply:
+    post:
+      tags:
+        - OpenAPI/卡片管理
+      summary: 实体卡申请（绑定）
+      description: |
+        实体卡申请入口（与虚拟卡开卡分离）。
+        
+        该接口会按 BIN 分配实体卡库存并发起上游绑定。
+        调用成功后通常返回 pending，请通过 /openapi/v1/card/operation/query 查询最终结果。
+      operationId: cardPhysicalApply
+      parameters:
+        - $ref: '#/components/parameters/X-APP-ID-Header'
+        - $ref: '#/components/parameters/X-TIMESTAMP-Header'
+        - $ref: '#/components/parameters/X-SIGN-Header'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CardPhysicalApplyRequest'
+            example:
+              member_xid: "member_123456"
+              bin: "4938"
+              idempotency_key: "card_physical_apply_20260107_001"
+      responses:
+        '200':
+          description: |
+            响应说明：HTTP状态码始终为200，成功时code=0，失败时code!=0（错误信息在响应体code字段中）
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - allOf:
+                      - $ref: '#/components/schemas/SuccessResponse'
+                      - type: object
+                        properties:
+                          data:
+                            $ref: '#/components/schemas/CardPhysicalApplyResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                success:
+                  summary: "成功响应（code: 0）"
+                  value:
+                    code: 0
+                    message: "success"
+                    data:
+                      xid: "member_123456"
+                      card_id: "WSB-CARD-123456"
+                      status: "pending"
+
+  /openapi/v1/card/physical/activate:
+    post:
+      tags:
+        - OpenAPI/卡片管理
+      summary: 实体卡激活
+      description: |
+        通过 card_id + activation_code 激活实体卡。
+      operationId: cardPhysicalActivate
+      parameters:
+        - $ref: '#/components/parameters/X-APP-ID-Header'
+        - $ref: '#/components/parameters/X-TIMESTAMP-Header'
+        - $ref: '#/components/parameters/X-SIGN-Header'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CardPhysicalActivateRequest'
+            example:
+              card_id: "WSB-CARD-123456"
+              activation_code: "123456"
+              idempotency_key: "card_physical_activate_20260107_001"
+      responses:
+        '200':
+          description: |
+            响应说明：HTTP状态码始终为200，成功时code=0，失败时code!=0（错误信息在响应体code字段中）
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - allOf:
+                      - $ref: '#/components/schemas/SuccessResponse'
+                      - type: object
+                        properties:
+                          data:
+                            $ref: '#/components/schemas/CardPhysicalActivateResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                success:
+                  summary: "成功响应（code: 0）"
+                  value:
+                    code: 0
+                    message: "success"
+                    data:
+                      card_id: "WSB-CARD-123456"
+                      status: "success"
+
+  /openapi/v1/card/deposit:
+    post:
+      tags:
+        - OpenAPI/卡片管理
+      summary: 虚拟卡充值
+      description: |
+        通过card_id对虚拟卡进行充值。
+        
+        需要确保卡片状态正常且属于当前商户。
+      operationId: cardDeposit
+      parameters:
+        - $ref: '#/components/parameters/X-APP-ID-Header'
+        - $ref: '#/components/parameters/X-TIMESTAMP-Header'
+        - $ref: '#/components/parameters/X-SIGN-Header'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CardDepositRequest'
+            example:
+              member_xid: "member_123456"
+              card_id: "card-uuid-123456"
+              amount: "50.00"
+              idempotency_key: "card_deposit_20260107_001"
+      responses:
+        '200':
+          description: |
+            响应说明：HTTP状态码始终为200，成功时code=0，失败时code!=0（错误信息在响应体code字段中）
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - allOf:
+                      - $ref: '#/components/schemas/SuccessResponse'
+                      - type: object
+                        properties:
+                          data:
+                            $ref: '#/components/schemas/CardDepositResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                success:
+                  summary: "成功响应（code: 0）"
+                  value:
+                    code: 0
+                    message: "success"
+                    data:
+                      xid: "member_123456"
+                      card_id: "card-uuid-123456"
+                      masked_card_number: "4111********1234"
+                      amount: "50.00"
+                      status: "success"
+                param_error:
+                  summary: "参数验证错误（code: 1002）"
+                  value:
+                    code: 1002
+                    message: "请求参数错误"
+                    data: null
+                idempotency_error:
+                  summary: "幂等键重复（code: 1002）"
+                  value:
+                    code: 1002
+                    message: "操作请勿重复执行"
+                    data: null
+                async_operation:
+                  summary: "异步操作（code: 1000）"
+                  value:
+                    code: 1000
+                    message: "充值操作已提交，正在处理中，请稍后查询结果"
+                    data: null
+                not_found_error:
+                  summary: "记录不存在（code: 1003）"
+                  value:
+                    code: 1003
+                    message: "卡片不存在"
+                    data: null
+                business_error:
+                  summary: "业务错误（code: 1000）"
+                  value:
+                    code: 1000
+                    message: "业务处理失败"
+                    data: null
+                system_error:
+                  summary: "系统错误（code: 1）"
+                  value:
+                    code: 1
+                    message: "系统繁忙，请稍后再试"
+                    data: null
+
+  /openapi/v1/card/details:
+    post:
+      tags:
+        - OpenAPI/卡片管理
+      summary: 获取卡片详情
+      description: |
+        通过SDK获取指定卡片的详细信息，包括卡号、CVV、余额、状态等。
+        
+        支持多个卡商，系统会根据卡片自动识别卡商并调用对应的SDK。
+      operationId: getCardDetails
+      parameters:
+        - $ref: '#/components/parameters/X-APP-ID-Header'
+        - $ref: '#/components/parameters/X-TIMESTAMP-Header'
+        - $ref: '#/components/parameters/X-SIGN-Header'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CardDetailsRequest'
+            example:
+              card_id: "card-uuid-123456"
+      responses:
+        '200':
+          description: |
+            响应说明：HTTP状态码始终为200，成功时code=0，失败时code!=0（错误信息在响应体code字段中）
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - allOf:
+                      - $ref: '#/components/schemas/SuccessResponse'
+                      - type: object
+                        properties:
+                          data:
+                            $ref: '#/components/schemas/CardDetailsResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                success:
+                  summary: "成功响应（code: 0）"
+                  value:
+                    code: 0
+                    message: "success"
+                    data:
+                      provider: 1
+                      details:
+                        # 卡商示例
+                        id: 123456
+                        card_uuid: "card-uuid-123456"
+                        card_bin: "411111"
+                        card_number: "4111111111111234"
+                        card_number_four: "1234"
+                        exp: "12/25"
+                        cvv: "123"
+                        balance: 1000.50
+                        status: 1
+                        create_time: "2024-01-01 10:00:00"
+                param_error:
+                  summary: "参数验证错误（code: 1002）"
+                  value:
+                    code: 1002
+                    message: "请求参数错误"
+                    data: null
+                not_found_error:
+                  summary: "记录不存在（code: 1003）"
+                  value:
+                    code: 1003
+                    message: "卡片不存在"
+                    data: null
+                business_error:
+                  summary: "业务错误（code: 1000）"
+                  value:
+                    code: 1000
+                    message: "业务处理失败"
+                    data: null
+                system_error:
+                  summary: "系统错误（code: 1）"
+                  value:
+                    code: 1
+                    message: "系统繁忙，请稍后再试"
+                    data: null
+
+  /openapi/v1/card/freeze:
+    post:
+      tags:
+        - OpenAPI/卡片管理
+      summary: 冻结卡片
+      description: |
+        通过SDK冻结指定卡片，卡片冻结后将无法进行交易。
+        
+        支持多个卡商，系统会根据卡片自动识别卡商并调用对应的SDK。
+        
+        注意：只有非冻结状态的卡片才能被冻结。
+      operationId: freezeCard
+      parameters:
+        - $ref: '#/components/parameters/X-APP-ID-Header'
+        - $ref: '#/components/parameters/X-TIMESTAMP-Header'
+        - $ref: '#/components/parameters/X-SIGN-Header'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CardFreezeRequest'
+            example:
+              card_id: "card-uuid-123456"
+              remark: "用户申请冻结"
+              idempotency_key: "card_freeze_20260107_001"
+      responses:
+        '200':
+          description: |
+            响应说明：HTTP状态码始终为200，成功时code=0，失败时code!=0（错误信息在响应体code字段中）
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - allOf:
+                      - $ref: '#/components/schemas/SuccessResponse'
+                      - type: object
+                        properties:
+                          data:
+                            $ref: '#/components/schemas/CardFreezeResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                success:
+                  summary: "成功响应（code: 0）"
+                  value:
+                    code: 0
+                    message: "success"
+                    data:
+                      success: true
+                      message: "卡片冻结成功"
+                param_error:
+                  summary: "参数验证错误（code: 1002）"
+                  value:
+                    code: 1002
+                    message: "请求参数错误"
+                    data: null
+                idempotency_error:
+                  summary: "幂等键重复（code: 1002）"
+                  value:
+                    code: 1002
+                    message: "操作请勿重复执行"
+                    data: null
+                async_operation:
+                  summary: "异步操作（code: 1000）"
+                  value:
+                    code: 1000
+                    message: "冻结操作已提交，正在处理中，请稍后查询结果"
+                    data: null
+                business_error:
+                  summary: "业务错误（code: 1000）"
+                  value:
+                    code: 1000
+                    message: "卡片已经是冻结状态"
+                    data: null
+                system_error:
+                  summary: "系统错误（code: 1）"
+                  value:
+                    code: 1
+                    message: "系统繁忙，请稍后再试"
+                    data: null
+
+  /openapi/v1/card/unfreeze:
+    post:
+      tags:
+        - OpenAPI/卡片管理
+      summary: 解冻卡片
+      description: |
+        通过SDK解冻指定卡片，卡片解冻后可以正常进行交易。
+        
+        支持多个卡商，系统会根据卡片自动识别卡商并调用对应的SDK。
+        
+        注意：只有冻结状态的卡片才能被解冻。
+      operationId: unfreezeCard
+      parameters:
+        - $ref: '#/components/parameters/X-APP-ID-Header'
+        - $ref: '#/components/parameters/X-TIMESTAMP-Header'
+        - $ref: '#/components/parameters/X-SIGN-Header'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CardUnfreezeRequest'
+            example:
+              card_id: "card-uuid-123456"
+              remark: "用户申请解冻"
+              idempotency_key: "card_unfreeze_20260107_001"
+      responses:
+        '200':
+          description: |
+            响应说明：HTTP状态码始终为200，成功时code=0，失败时code!=0（错误信息在响应体code字段中）
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - allOf:
+                      - $ref: '#/components/schemas/SuccessResponse'
+                      - type: object
+                        properties:
+                          data:
+                            $ref: '#/components/schemas/CardUnfreezeResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                success:
+                  summary: "成功响应（code: 0）"
+                  value:
+                    code: 0
+                    message: "success"
+                    data:
+                      success: true
+                      message: "卡片解冻成功"
+                param_error:
+                  summary: "参数验证错误（code: 1002）"
+                  value:
+                    code: 1002
+                    message: "请求参数错误"
+                    data: null
+                idempotency_error:
+                  summary: "幂等键重复（code: 1002）"
+                  value:
+                    code: 1002
+                    message: "操作请勿重复执行"
+                    data: null
+                async_operation:
+                  summary: "异步操作（code: 1000）"
+                  value:
+                    code: 1000
+                    message: "解冻操作已提交，正在处理中，请稍后查询结果"
+                    data: null
+                business_error:
+                  summary: "业务错误（code: 1000）"
+                  value:
+                    code: 1000
+                    message: "卡片不是冻结状态，无法解冻"
+                    data: null
+                system_error:
+                  summary: "系统错误（code: 1）"
+                  value:
+                    code: 1
+                    message: "系统繁忙，请稍后再试"
+                    data: null
+
+  /openapi/v1/card/payout:
+    post:
+      tags:
+        - OpenAPI/卡片管理
+      summary: 卡片提现
+      description: |
+        通过SDK从指定卡片提现到用户余额。
+        
+        支持多个卡商，系统会根据卡片自动识别卡商并调用对应的SDK。
+        
+        注意：提现操作需要卡片有足够的余额。
+      operationId: payoutCard
+      parameters:
+        - $ref: '#/components/parameters/X-APP-ID-Header'
+        - $ref: '#/components/parameters/X-TIMESTAMP-Header'
+        - $ref: '#/components/parameters/X-SIGN-Header'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CardPayoutRequest'
+            example:
+              card_id: "card-uuid-123456"
+              amount: "30.00"
+              remark: "提现到余额"
+              idempotency_key: "card_payout_20260107_001"
+      responses:
+        '200':
+          description: |
+            响应说明：HTTP状态码始终为200，成功时code=0，失败时code!=0（错误信息在响应体code字段中）
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - allOf:
+                      - $ref: '#/components/schemas/SuccessResponse'
+                      - type: object
+                        properties:
+                          data:
+                            $ref: '#/components/schemas/CardPayoutResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                success:
+                  summary: "成功响应（code: 0）"
+                  value:
+                    code: 0
+                    message: "success"
+                    data:
+                      xid: "member_123456"
+                      card_id: "card-uuid-123456"
+                      masked_card_number: "4111********1234"
+                      amount: "30.00"
+                      status: "success"
+                param_error:
+                  summary: "参数验证错误（code: 1002）"
+                  value:
+                    code: 1002
+                    message: "请求参数错误"
+                    data: null
+                idempotency_error:
+                  summary: "幂等键重复（code: 1002）"
+                  value:
+                    code: 1002
+                    message: "操作请勿重复执行"
+                    data: null
+                not_found_error:
+                  summary: "记录不存在（code: 1003）"
+                  value:
+                    code: 1003
+                    message: "卡片不存在或不属于当前用户"
+                    data: null
+                business_error:
+                  summary: "业务错误（code: 1000）"
+                  value:
+                    code: 1000
+                    message: "业务处理失败"
+                    data: null
+                system_error:
+                  summary: "系统错误（code: 1）"
+                  value:
+                    code: 1
+                    message: "系统繁忙，请稍后再试"
+                    data: null
+
+  /openapi/v1/card/delete:
+    post:
+      tags:
+        - OpenAPI/卡片管理
+      summary: 删除卡片
+      description: |
+        通过SDK删除指定卡片。
+        
+        支持多个卡商，系统会根据卡片自动识别卡商并调用对应的SDK。
+        
+        注意：删除操作不可逆，请谨慎操作。
+      operationId: deleteCard
+      parameters:
+        - $ref: '#/components/parameters/X-APP-ID-Header'
+        - $ref: '#/components/parameters/X-TIMESTAMP-Header'
+        - $ref: '#/components/parameters/X-SIGN-Header'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CardDeleteRequest'
+            example:
+              card_id: "card-uuid-123456"
+              remark: "用户申请删除"
+              idempotency_key: "card_delete_20260107_001"
+      responses:
+        '200':
+          description: |
+            响应说明：HTTP状态码始终为200，成功时code=0，失败时code!=0（错误信息在响应体code字段中）
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - allOf:
+                      - $ref: '#/components/schemas/SuccessResponse'
+                      - type: object
+                        properties:
+                          data:
+                            $ref: '#/components/schemas/CardDeleteResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                success:
+                  summary: "成功响应（code: 0）"
+                  value:
+                    code: 0
+                    message: "success"
+                    data:
+                      success: true
+                      message: "卡片删除成功"
+                param_error:
+                  summary: "参数验证错误（code: 1002）"
+                  value:
+                    code: 1002
+                    message: "请求参数错误"
+                    data: null
+                idempotency_error:
+                  summary: "幂等键重复（code: 1002）"
+                  value:
+                    code: 1002
+                    message: "操作请勿重复执行"
+                    data: null
+                async_operation:
+                  summary: "异步操作（code: 1000）"
+                  value:
+                    code: 1000
+                    message: "删除操作已提交，正在处理中，请稍后查询结果"
+                    data: null
+                not_found_error:
+                  summary: "记录不存在（code: 1003）"
+                  value:
+                    code: 1003
+                    message: "卡片不存在或不属于当前用户"
+                    data: null
+                business_error:
+                  summary: "业务错误（code: 1000）"
+                  value:
+                    code: 1000
+                    message: "业务处理失败"
+                    data: null
+                system_error:
+                  summary: "系统错误（code: 1）"
+                  value:
+                    code: 1
+                    message: "系统繁忙，请稍后再试"
+                    data: null
+
+  /openapi/v1/card/bins:
+    post:
+      tags:
+        - OpenAPI/卡片管理
+      summary: 查询可用卡BIN
+      description: |
+        查询所有可用卡BIN列表，按发卡商分组。
+        
+        注意：开卡接口已改为通过 provider_id 自动查找BIN，此接口主要用于查询和展示。
+        每个卡商只有一个可用的卡BIN。
+      operationId: getCardBins
+      parameters:
+        - $ref: '#/components/parameters/X-APP-ID-Header'
+        - $ref: '#/components/parameters/X-TIMESTAMP-Header'
+        - $ref: '#/components/parameters/X-SIGN-Header'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CardBinListRequest'
+            example: {}
+      responses:
+        '200':
+          description: |
+            响应说明：HTTP状态码始终为200，成功时code=0，失败时code!=0（错误信息在响应体code字段中）
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - allOf:
+                      - $ref: '#/components/schemas/SuccessResponse'
+                      - type: object
+                        properties:
+                          data:
+                            type: object
+                            additionalProperties:
+                              type: array
+                              items:
+                                $ref: '#/components/schemas/CardBin'
+                            description: 按发卡商分组的BIN列表（key为发卡商名称，value为BIN列表）
+                  - $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                success:
+                  summary: "成功响应（code: 0）"
+                  value:
+                    code: 0
+                    message: "success"
+                    data:
+                      provider_1:
+                        - id: 1
+                          bin: "4482130-3ds"
+                          card_network: "Visa"
+                          status: 1
+                          min_money: "10.00"
+                          max_money: "10000.00"
+                          created_at: 1704067200
+                          updated_at: 1704067200
+                          created_at_string: "2024-01-01 10:00:00"
+                          updated_at_string: "2024-01-01 10:00:00"
+                        - id: 2
+                          bin: "55616731"
+                          card_network: "Mastercard"
+                          status: 1
+                          min_money: "10.00"
+                          max_money: "10000.00"
+                          created_at: 1704067200
+                          updated_at: 1704067200
+                          created_at_string: "2024-01-01 10:00:00"
+                          updated_at_string: "2024-01-01 10:00:00"
+                param_error:
+                  summary: "参数验证错误（code: 1002）"
+                  value:
+                    code: 1002
+                    message: "请求参数错误"
+                    data: null
+                business_error:
+                  summary: "业务错误（code: 1000）"
+                  value:
+                    code: 1000
+                    message: "业务处理失败"
+                    data: null
+                system_error:
+                  summary: "系统错误（code: 1）"
+                  value:
+                    code: 1
+                    message: "系统繁忙，请稍后再试"
+                    data: null
+
+  /openapi/v1/card/operation/query:
+    post:
+      tags:
+        - OpenAPI/卡片管理
+      summary: 查询卡片操作结果
+      description: |
+        根据操作类型、幂等键和卡片ID查询卡片操作的结果。
+        
+        可用于查询异步操作的最终结果，或查询之前执行的操作记录。
+        
+        注意：当操作是异步处理时，接口会返回 HTTP 200 状态码，但响应体中的 code=1000，message 为 "xxx操作已提交，正在处理中，请稍后查询结果"。
+        此时可以通过本接口查询操作的最终结果。
+        
+        注意：
+        - 开卡操作（create）时，card_id 可以为空
+        - 其他操作类型必须提供 card_id
+      operationId: queryCardOperationResult
+      parameters:
+        - $ref: '#/components/parameters/X-APP-ID-Header'
+        - $ref: '#/components/parameters/X-TIMESTAMP-Header'
+        - $ref: '#/components/parameters/X-SIGN-Header'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CardOperationQueryRequest'
+            example:
+              operation_type: "create"
+              idempotency_key: "card_create_20260107_001"
+              card_id: ""
+      responses:
+        '200':
+          description: |
+            响应说明：HTTP状态码始终为200，成功时code=0，失败时code!=0（错误信息在响应体code字段中）
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - allOf:
+                      - $ref: '#/components/schemas/SuccessResponse'
+                      - type: object
+                        properties:
+                          data:
+                            $ref: '#/components/schemas/CardOperationQueryResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                success:
+                  summary: "成功响应（code: 0）"
+                  value:
+                    code: 0
+                    message: "success"
+                    data:
+                      operation_type: "create"
+                      card_id: "261135f4baf14130be0ed45cfff29dd8"
+                      status: "success"
+                      result:
+                        cardUuid: "261135f4baf14130be0ed45cfff29dd8"
+                        cardNumber: "4482130123456789"
+                        status: 1
+                      error_msg: ""
+                      notified_at: 1767756661
+                      created_at: 1767756660
+                      updated_at: 1767756661
+                      notified_at_string: "2026-01-07 12:00:01"
+                      created_at_string: "2026-01-07 12:00:00"
+                      updated_at_string: "2026-01-07 12:00:01"
+                param_error:
+                  summary: "参数验证错误（code: 1002）"
+                  value:
+                    code: 1002
+                    message: "请求参数错误"
+                    data: null
+                not_found_error:
+                  summary: "记录不存在（code: 1003）"
+                  value:
+                    code: 1003
+                    message: "操作记录不存在"
+                    data: null
+                business_error:
+                  summary: "业务错误（code: 1000）"
+                  value:
+                    code: 1000
+                    message: "业务处理失败"
+                    data: null
+                system_error:
+                  summary: "系统错误（code: 1）"
+                  value:
+                    code: 1
+                    message: "系统繁忙，请稍后再试"
+                    data: null
+
+  /openapi/v1/transaction/list:
+    post:
+      tags:
+        - OpenAPI/交易管理
+      summary: 交易列表接口
+      description: |
+        查询指定卡片的交易记录列表，支持分页。需要验证卡片归属。
+        
+        通过卡片ID（card_id）查询，系统会根据card_id在本地数据库中查找对应的卡号，然后查询交易记录。
+        
+        返回的交易记录中，扣款交易的金额会自动转换为负数。
+      operationId: getTransactionList
+      parameters:
+        - $ref: '#/components/parameters/X-APP-ID-Header'
+        - $ref: '#/components/parameters/X-TIMESTAMP-Header'
+        - $ref: '#/components/parameters/X-SIGN-Header'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransactionListRequest'
+            example:
+              page: 1
+              page_size: 10
+              card_id: "891a956acc454b30b7e8b84fadeef564"
+      responses:
+        '200':
+          description: |
+            响应说明：HTTP状态码始终为200，成功时code=0，失败时code!=0（错误信息在响应体code字段中）
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - allOf:
+                      - $ref: '#/components/schemas/SuccessResponse'
+                      - type: object
+                        properties:
+                          data:
+                            $ref: '#/components/schemas/PagedTransactionResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                success:
+                  summary: "成功响应（code: 0）"
+                  value:
+                    code: 0
+                    message: "success"
+                    data:
+                      total: 100
+                      list:
+                        - id: 1
+                          transaction_id: "txn-123456"
+                          available_amount: 949.75
+                          merchant: "Amazon"
+                          transaction_status: "approved-authentication"
+                          remark: "Purchase"
+                          transaction_time: "2024-01-01 10:00:00"
+                          create_time: "2024-01-01 10:00:01"
+                param_error:
+                  summary: "参数验证错误（code: 1002）"
+                  value:
+                    code: 1002
+                    message: "请求参数错误"
+                    data: null
+                not_found_error:
+                  summary: "记录不存在（code: 1003）"
+                  value:
+                    code: 1003
+                    message: "卡片不存在或不属于当前用户"
+                    data: null
+                business_error:
+                  summary: "业务错误（code: 1000）"
+                  value:
+                    code: 1000
+                    message: "业务处理失败"
+                    data: null
+                system_error:
+                  summary: "系统错误（code: 1）"
+                  value:
+                    code: 1
+                    message: "系统繁忙，请稍后再试"
+                    data: null
